@@ -1,0 +1,1477 @@
+import { CodeBlock, ImageBlock } from '../../components/journal'
+
+I was looking into simulating binaural audio in a static environment, preferably on a native Windows environment.
+I found the Microsoft Spatial Audio as a potential solution since it supports placing audio sources in three dimensions.
+For someone with no experience with computer audio and DSP, it seemed like a good starting point.
+
+Windows Sonic for Headphones was introduced in the Creators Update for Windows 10 back in 2017. 
+Around the same time in mid 2018, the documentation for the ISpatialAudioClient interface was released.
+This allowed developers to play 3D spatial audio on Windows Sonic for Headphones, Dolby Atmos, and DTS:X.
+In this article, I'll go over how to use this API and some observations I made while testing the audio.
+
+# Prerequisites for using the API
+
+## Using `HRESULT`
+For the entire program, we'll be storing the `HRESULT` returned by the Windows API functions.
+<a href="https://learn.microsoft.com/en-us/windows/win32/seccrypto/common-hresult-values">`HRESULT`</a> is a value type used to indicate success or failure of these functions and the failure type.
+Personally, I used the `HRESULT` variable with breakpoints to debug.
+Although, I would recommend using error handling as well.
+
+## Using `CoInitializeEx`
+As Media Foundation and retrieving audio device (which uses `CoCreateInstance`) requires the <a href="https://learn.microsoft.com/en-us/windows/win32/com/the-com-library">COM (Component Object Model) library</a>, you'll have to use <a href="https://learn.microsoft.com/en-us/windows/win32/api/combaseapi/nf-combaseapi-coinitializeex">`CoInitializeEx`</a>.
+Do note that this isn't mentioned in the <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects">spatial sound Microsoft article</a>.
+I recommend you call this first in case you add any other calls using the COM library.
+That means we'll use this to initialize the `HRESULT` variable as well.
+<CodeBlock>
+```cpp
+HRESULT hr = CoInitializeEx(NULL, COINIT_DISABLE_OLE1DDE);
+```
+</CodeBlock>
+Using `COINIT_DISABLE_OLE1DDE` is recommended as it <a href="https://learn.microsoft.com/en-us/windows/win32/learnwin32/initializing-the-com-library">avoids overheads associated with the obsolete Object Linking and Embedding 1.0</a>.
+You can also specify whether to use `COINIT_MULTITHREADED` or `COINIT_APARTMENTTHREADED` for the function.
+<a href="https://learn.microsoft.com/en-us/windows/win32/medfound/media-foundation-and-com">Microsoft recommends using `COINIT_MULTITHREADED`</a> but <a href="https://stackoverflow.com/questions/45334838/use-coinit-apartmentthreaded-or-coinit-multithreaded-in-media-foundation">I don't think this matters as Media Foundation itself initializes itself as multithreaded apartment anyway</a>.
+
+# Generating PCM audio through Media Foundation
+The `ISpatialAudioClient` and its associated objects stream spatial audio by processing a pulse code modulation (specifically WAV) audio.
+In this case, we will use 32-bit (float) mono PCM data with a 48kHz sample rate.
+Do note that the `ISpatialAudioClient` will only accept the same sample rate set in your system settings.
+
+Since I didn't want to be stuck with sine waves like in <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects">Microsoft's example</a>, I had to generate audio data by decoding audio files.
+I had two choices doing this.
+One is using highly portable libraries like FFmpeg's `libavcodec`.
+Another is using Media Foundation, a multimedia framework platform only supported on post-Vista Windows.
+Since I happened to feel adventurous at that time, I went with Media Foundation.
+
+The Media Foundation source reader provides a way to read audio files and turn it into PCM data.
+My implementation was mostly based on the article written <a href="https://learn.microsoft.com/en-us/windows/win32/medfound/tutorial--decoding-audio">here</a>.
+
+## Full implementation
+The full function should be right below.
+This takes in a wide-charcter C string (`source`) as the file path.
+We'll also pass the sample list (`leftWavSamples` and `rightWavSamples` float vectors for left and right channels) reference and the target sample rate (`targetRate`).
+<CodeBlock isExpandable>
+```cpp filename="uwpspatialsoundtest.cpp"
+// Audio file read function using Windows Media Foundation, from https://learn.microsoft.com/en-us/windows/win32/medfound/tutorial--decoding-audio
+HRESULT ReadAudioFile(const wchar_t* source, std::vector<float>& leftWavSamples, std::vector<float>& rightWavSamples, UINT32 targetRate, HRESULT& hr) {
+	IMFSourceReader* pReader = nullptr;
+    IMFMediaType* pPartialType = nullptr;
+    IMFMediaType* pAudioType = nullptr;    // Represents the PCM audio format.
+
+    DWORD cbAudioData = 0;
+    DWORD cbBuffer = 0;
+    BYTE* pAudioData = nullptr;
+	IMFSample* pSample = nullptr;
+    IMFMediaBuffer* pBuffer = nullptr;
+
+    UINT32 channelsAttr;
+    UINT32 sampleRateAttr;
+
+    hr = MFStartup(MF_VERSION);
+    if (FAILED(hr)) {
+        std::wcerr << "Failed to initialize Media Foundation." << std::endl;
+        goto done;
+    }
+
+    hr = MFCreateSourceReaderFromURL(source, nullptr, &pReader);
+    if (FAILED(hr)) {
+        std::wcerr << "Error opening file: " << source << std::endl;
+        goto done;
+    }
+
+    // Select the first audio stream, and deselect all other streams.
+    hr = pReader->SetStreamSelection((DWORD)MF_SOURCE_READER_ALL_STREAMS, FALSE);
+    hr = pReader->SetStreamSelection((DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM, TRUE);
+
+    // Create a partial media type that specifies 32-bit float PCM.
+    hr = MFCreateMediaType(&pPartialType);
+    hr = pPartialType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio);
+    hr = pPartialType->SetGUID(MF_MT_SUBTYPE, MFAudioFormat_Float);
+    hr = pPartialType->SetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, targetRate);
+
+    hr = pReader->SetCurrentMediaType((DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM, nullptr, pPartialType);
+
+    // Get the complete uncompressed format.
+    hr = pReader->GetCurrentMediaType((DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM, &pAudioType);
+
+    // Ensure the stream is selected.
+    hr = pReader->SetStreamSelection((DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM, TRUE);
+
+    // Check if stereo
+    channelsAttr = MFGetAttributeUINT32(pAudioType, MF_MT_AUDIO_NUM_CHANNELS, 0);
+    if (channelsAttr != 2) {
+        std::wcerr << "Audio is not stereo." << std::endl;
+        hr = E_FAIL;
+        goto done;
+    }
+
+    // Return the PCM format to the caller.
+    pAudioType->AddRef();
+
+    // Read samples
+    leftWavSamples.clear();
+    rightWavSamples.clear();
+
+    while (true) {
+        DWORD dwFlags = 0;
+
+        hr = pReader->ReadSample((DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM, 0, nullptr, &dwFlags, nullptr, &pSample);
+
+        if (FAILED(hr)) break;
+        if (dwFlags & MF_SOURCE_READERF_ENDOFSTREAM) {
+            hr = S_OK;
+            break;
+        }
+        if (pSample == nullptr) {
+            std::wcerr << "No sample." << std::endl;
+            continue;
+        }
+
+        // Get a pointer to the audio data in the sample.
+        hr = pSample->ConvertToContiguousBuffer(&pBuffer);
+        if (FAILED(hr)) break;
+        hr = pBuffer->Lock(&pAudioData, nullptr, &cbBuffer);
+        if (FAILED(hr)) break;
+
+        // Interpret channels as interleaved (Copilot told me this, confirmed at https://docs.omniverse.nvidia.com/kit/docs/carbonite/158.6/docs/audio/Basics.html)
+        size_t frameCount = cbBuffer / (sizeof(float) * 2);
+        size_t prevSize = leftWavSamples.size();
+        float* rawWavSamples = reinterpret_cast<float*>(pAudioData);
+        leftWavSamples.resize(prevSize + frameCount);
+        rightWavSamples.resize(prevSize + frameCount);
+
+
+        for (size_t i = 0; i < frameCount; i++) {
+            leftWavSamples[prevSize + i] = rawWavSamples[(i << 1)];
+            rightWavSamples[prevSize + i] = rawWavSamples[(i << 1) | size_t(1)];
+        }
+
+        // Unlock the buffer.
+        hr = pBuffer->Unlock();
+        pAudioData = nullptr;
+        SafeRelease(&pSample);
+        SafeRelease(&pBuffer);
+    }
+
+    if (pAudioData) {
+        pBuffer->Unlock();
+    }
+
+done:
+    SafeRelease(&pPartialType);
+    SafeRelease(&pBuffer);
+    SafeRelease(&pSample);
+    SafeRelease(&pAudioType);
+    SafeRelease(&pReader);
+
+    return hr;
+}
+```
+</CodeBlock>
+
+## The process
+You'll first have to initialize the Media Foundation platform and get the source reader pointer.
+<CodeBlock>
+```cpp
+IMFSourceReader* pReader = nullptr;
+
+hr = MFStartup(MF_VERSION);
+hr = MFCreateSourceReaderFromURL(source, nullptr, &pReader);
+```
+</CodeBlock>
+
+Then, select the audio stream and deselect all streams.
+I think this isn't required as the audio files don't have video frames anyway.
+This is to improve performance by preventing the source reader from holding onto video frames.
+<CodeBlock>
+```cpp
+hr = pReader->SetStreamSelection((DWORD)MF_SOURCE_READER_ALL_STREAMS, FALSE);
+hr = pReader->SetStreamSelection((DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM, TRUE);
+```
+</CodeBlock>
+
+As we want to use 32-bit floats for raw audio data, we'll specify this in the partial media type.
+We'll also specify the target sample rate.
+We can then set the media type for the source reader using `SetCurrentMediaType`.
+<CodeBlock>
+```cpp
+IMFMediaType* pPartialType = nullptr;
+
+hr = MFCreateMediaType(&pPartialType);
+hr = pPartialType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio);
+hr = pPartialType->SetGUID(MF_MT_SUBTYPE, MFAudioFormat_Float);
+hr = pPartialType->SetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, targetRate);
+
+hr = pReader->SetCurrentMediaType((DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM, nullptr, pPartialType);
+```
+</CodeBlock>
+
+Before we start decoding audio, we'll have to check if the audio stream is selected using `SetStreamSelection`.
+In addition, you can do media format checks by retrieving the `IMFMediaType` using `GetCurrentMediaType`.
+In this case, I've put a check to strictly use stereo audio for my use case.
+<CodeBlock>
+```cpp
+IMFMediaType* pAudioType = nullptr;
+
+// Get the complete uncompressed format.
+hr = pReader->GetCurrentMediaType((DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM, &pAudioType);
+
+// Ensure the stream is selected.
+hr = pReader->SetStreamSelection((DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM, TRUE);
+
+// Get sample rate and check if stereo
+UINT32 channelsAttr;
+
+channelsAttr = MFGetAttributeUINT32(pAudioType, MF_MT_AUDIO_NUM_CHANNELS, 0);
+if (channelsAttr != 2) {
+    std::wcerr << "Audio is not stereo." << std::endl;
+    hr = E_FAIL;
+    goto done;
+}
+```
+</CodeBlock>
+
+Before we start reading anything, we'll have to return the PCM format to the caller using `AddRef` on the `pAudioType` we just used to retrieve the `IMFMediaType` (according to the <a href="https://learn.microsoft.com/en-us/windows/win32/medfound/tutorial--decoding-audio">article</a>).
+<a href="https://learn.microsoft.com/en-us/windows/win32/api/unknwn/nf-unknwn-iunknown-addref">I presume this is to prevent dangling pointers by notifying the COM object that there is an active reference</a>.
+<CodeBlock>
+```cpp
+// Return the PCM format to the caller.
+pAudioType->AddRef();
+
+// Clear sample list
+leftWavSamples.clear();
+rightWavSamples.clear();
+```
+</CodeBlock>
+
+Now, we can start reading audio data.
+For each loop, we'll read the sample into the `pSample` pointer to `IMFSample` container object for media data.
+This is done by calling `ReadSample` on the source reader.
+We'll also use the double word flags retrieved from `ReadSample` to detect end of stream.
+
+After checking whether more samples ara available and has no error, we'll get a pointer to the buffer interface (`pBuffer`) using `ConvertToContiguousBuffer`.
+We can then get the raw audio data (`pAudioData`) and sample size (`cbBuffer`) from the buffer by locking the buffer.
+We then reinterpret cast the retrieved audio data and write into the sample list.
+
+How you write this audio data into the sample list will depend on the channel count, however.
+As audio streams interleave channel samples, you'll have to account for that when you get the number of samples in the buffer and eventually write to the sample list.
+<ImageBlock
+    src="https://docs.omniverse.nvidia.com/kit/docs/carbonite/158.6/_images/stream_layout.png"
+    desc="Image from Nvidia Omniverse Carbonite SDK documentation."
+    origin="https://docs.omniverse.nvidia.com/kit/docs/carbonite/158.6/docs/audio/Basics.html"
+/>
+The code below shows how I write stereo audio.
+
+After writing all audio, it would be good practice to unlock the buffer and release the sample container and buffer interface pointers using `SafeRelease`.
+The <a href="https://learn.microsoft.com/en-us/windows/win32/medfound/tutorial--decoding-audio">Microsoft article</a> specifies a check on whether `pAudioData` still references something.
+I think this was probably in case the file write in their example returns an error and the loop breaks before unlocking the buffer.
+Although I don't think I need this check, I added it just in case.
+<CodeBlock>
+```cpp
+DWORD cbBuffer = 0;
+BYTE* pAudioData = nullptr;
+IMFSample* pSample = nullptr;
+IMFMediaBuffer* pBuffer = nullptr;
+
+while (true) {
+    DWORD dwFlags = 0;
+
+    hr = pReader->ReadSample((DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM, 0, nullptr, &dwFlags, nullptr, &pSample);
+
+    if (FAILED(hr)) break;
+    if (dwFlags & MF_SOURCE_READERF_ENDOFSTREAM) {
+        hr = S_OK;
+        break;
+    }
+    if (pSample == nullptr) {
+        std::wcerr << "No sample." << std::endl;
+        continue;
+    }
+
+    // Get a pointer to the audio data in the sample.
+    hr = pSample->ConvertToContiguousBuffer(&pBuffer);
+    if (FAILED(hr)) break;
+    hr = pBuffer->Lock(&pAudioData, nullptr, &cbBuffer);
+    if (FAILED(hr)) break;
+
+    // Interpret channels as interleaved (Copilot told me this, confirmed at https://docs.omniverse.nvidia.com/kit/docs/carbonite/158.6/docs/audio/Basics.html)
+    size_t frameCount = cbBuffer / (sizeof(float) * 2);
+    size_t prevSize = leftWavSamples.size();
+    float* rawWavSamples = reinterpret_cast<float*>(pAudioData);
+    leftWavSamples.resize(prevSize + frameCount);
+    rightWavSamples.resize(prevSize + frameCount);
+
+
+    for (size_t i = 0; i < frameCount; i++) {
+        leftWavSamples[prevSize + i] = rawWavSamples[(i << 1)];
+        rightWavSamples[prevSize + i] = rawWavSamples[(i << 1) | size_t(1)];
+    }
+
+    // Unlock the buffer.
+    hr = pBuffer->Unlock();
+    pAudioData = nullptr;
+    SafeRelease(&pSample);
+    SafeRelease(&pBuffer);
+}
+
+if (pAudioData) {
+    pBuffer->Unlock();
+}
+```
+</CodeBlock>
+
+After we read the audio data (or we get an error), we can then release all the pointers.
+<CodeBlock>
+```cpp
+SafeRelease(&pPartialType);
+SafeRelease(&pBuffer);
+SafeRelease(&pSample);
+SafeRelease(&pAudioType);
+SafeRelease(&pReader);
+```
+</CodeBlock>
+
+## Extra info
+Before I discovered you could assign the sample rate at read, I had a separate function that resamples the data from the source sample rate to the target sample rate using <a href="https://learn.microsoft.com/en-us/previous-versions/dd443196(v=vs.85)">`CLSID_AudioResamplerMediaObject`</a>.
+I think for some audio files, the function ran into a `E_NOTIMPL` `HRESULT` value when running the `IMFTransform`'s `ProcessOutput` function.
+I never got to figure out why that was the case, but it doesn't happen with source reader as far as I can see.
+
+# The `ISpatialAudioClient` and `ISpatialAudioObject`
+Now that we have a way to get WAV audio, we can stream the audio using the Spatial Audio API.
+
+## Full implementation
+My implementation was mostly based on the article written <a href='https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects'>here</a>.
+Do note that the Spatial Audio API won't work unless you turn on spatial sound (e.g. Windows Sonic for Headphones) in your audio output settings.
+
+The full function should be right below.
+The function takes in a list representing different audio sample channels (`wavSamples`), list representing the positions of the audio object (`positions`), list representing a reference to the audio sample channel (index) the audio object will use (`channels`), and list representing the volume of the audio object (`volumes`).
+I'm also passing in the list of offsets of the audio object to shift some audio objects forward by a few frames (`offsets`).
+This was to account for sound travel (more on that later).
+<CodeBlock isExpandable>
+```cpp filename="uwpspatialsoundtest.cpp"
+// Spatial audio streaming function
+static HRESULT StreamSpatialAudio(
+    std::vector<std::vector<float>>& wavSamples,
+    float sampleRate,
+    std::vector<Windows::Foundation::Numerics::float3>& positions,
+    std::vector<size_t>& channels,
+    std::vector<float> volumes,
+    std::vector<UINT> offsets,
+    HRESULT& hr
+) {
+    // This is where we get the audio device
+    Microsoft::WRL::ComPtr<IMMDeviceEnumerator> deviceEnum;
+    Microsoft::WRL::ComPtr<IMMDevice> defaultDevice;
+
+    hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator), (void**)&deviceEnum);
+    hr = deviceEnum->GetDefaultAudioEndpoint(EDataFlow::eRender, eMultimedia, &defaultDevice);
+
+    // This is where the audio format is specified (32-bit, mono, 48kHz, likely according to system settings)
+    WAVEFORMATEX format;
+    format.wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
+    format.wBitsPerSample = 32;
+    format.nChannels = 1;
+    format.nSamplesPerSec = sampleRate;
+    format.nBlockAlign = (format.wBitsPerSample >> 3) * format.nChannels;
+    format.nAvgBytesPerSec = format.nBlockAlign * format.nSamplesPerSec;
+    format.cbSize = 0;
+
+    // Activate ISpatialAudioClient on the desired audio-device 
+    Microsoft::WRL::ComPtr<ISpatialAudioClient> spatialAudioClient;
+    hr = defaultDevice->Activate(__uuidof(ISpatialAudioClient), CLSCTX_INPROC_SERVER, nullptr, (void**)&spatialAudioClient);
+
+    hr = spatialAudioClient->IsAudioObjectFormatSupported(&format);
+    if (FAILED(hr)) {
+        std::cerr << "Audio object format not supported by spatial audio client." << std::endl;
+        return hr;
+    }
+
+    // Create the event that will be used to signal the client for more data
+    HANDLE bufferCompletionEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+
+    // 128 max dynamic objects for Windows Sonic
+    UINT32 maxDynamicObjectCount;
+    hr = spatialAudioClient->GetMaxDynamicObjectCount(&maxDynamicObjectCount);
+
+    if (maxDynamicObjectCount == 0) {
+        // Dynamic objects are unsupported
+        return hr;
+    }
+
+    SpatialAudioObjectRenderStreamActivationParams streamParams;
+    streamParams.ObjectFormat = &format;
+    streamParams.StaticObjectTypeMask = AudioObjectType_None;
+    streamParams.MinDynamicObjectCount = 0;
+    streamParams.MaxDynamicObjectCount = min(maxDynamicObjectCount, 20);
+    streamParams.Category = AudioCategory_GameEffects;
+    streamParams.EventHandle = bufferCompletionEvent;
+    streamParams.NotifyObject = nullptr;
+
+    PROPVARIANT pv;
+    PropVariantInit(&pv);
+    pv.vt = VT_BLOB;
+    pv.blob.cbSize = sizeof(streamParams);
+    pv.blob.pBlobData = (BYTE*)&streamParams;
+
+    Microsoft::WRL::ComPtr<ISpatialAudioObjectRenderStream> spatialAudioStream;
+    hr = spatialAudioClient->ActivateSpatialAudioStream(&pv, __uuidof(spatialAudioStream), (void**)&spatialAudioStream);
+
+    // Initializing sound object
+    std::vector<Speaker3dObject> speakerObjects;
+    for (size_t i = 0; i < positions.size(); i++) {
+        Microsoft::WRL::ComPtr<ISpatialAudioObject> audioObject;
+        hr = spatialAudioStream->ActivateSpatialAudioObject(AudioObjectType::AudioObjectType_Dynamic, &audioObject);
+
+        speakerObjects.push_back({
+            audioObject,
+            positions.at(i),
+            volumes.at(i),
+            &wavSamples.at(channels.at(i)),
+            static_cast<UINT>(wavSamples.at(channels.at(i)).size()),
+            offsets.at(i)
+        });
+    }
+
+    std::cout << "Beginning spatial audio streaming." << std::endl;
+
+    // Start streaming / rendering 
+    hr = spatialAudioStream->Start();
+
+    float rotateAngle = 0.0f;
+    bool streaming = true;
+    while (streaming) {
+        // Wait for a signal from the audio-engine to start the next processing pass
+        if (WaitForSingleObject(bufferCompletionEvent, 200) != WAIT_OBJECT_0) {
+            break;
+        }
+
+        UINT32 availableDynamicObjectCount;
+        UINT32 frameCount;
+
+        hr = spatialAudioStream->BeginUpdatingAudioObjects(&availableDynamicObjectCount, &frameCount);
+
+        BYTE* buffer;
+        UINT32 bufferLength;
+
+        std::vector<Speaker3dObject>::iterator it = speakerObjects.begin();
+        while (it != speakerObjects.end()) {
+            hr = it->audioObject->GetBuffer(&buffer, &bufferLength);
+            UINT writeLen = 0;
+
+            // End of data
+            if (it->totalFrameCount > it->currFrameIndex) {
+                // Write audio to available frames
+                writeLen = WriteToAudioObjectBuffer(reinterpret_cast<float*>(buffer), frameCount, *(it->wavSample), it->currFrameIndex);
+
+                // Audio object has to be updated for each iteration, will return to default value if only set once
+                hr = it->audioObject->SetPosition(it->position.x, it->position.y, it->position.z);
+                hr = it->audioObject->SetVolume(it->volume);
+
+                it++;
+            }
+            else {
+                hr = it->audioObject->SetEndOfStream(writeLen);
+                it->audioObject = nullptr;
+                it->totalFrameCount = 0;
+                it = speakerObjects.erase(it);
+                streaming = false;
+            }
+        }
+
+        hr = spatialAudioStream->EndUpdatingAudioObjects();
+    }
+
+    // Stop the stream 
+    hr = spatialAudioStream->Stop();
+
+    // We don't want to start again, so reset the stream to free it's resources.
+    hr = spatialAudioStream->Reset();
+
+    CloseHandle(bufferCompletionEvent);
+
+    return hr;
+}
+```
+</CodeBlock>
+
+A struct will be used to store the audio object data.
+<CodeBlock>
+```cpp filename="uwpspatialsoundtest.cpp"
+// Audio object struct
+struct Speaker3dObject {
+    Microsoft::WRL::ComPtr<ISpatialAudioObject> audioObject;
+	Windows::Foundation::Numerics::float3 position; // In meters
+    float volume; // 0.0 to 1.0
+    std::vector<float>* wavSample;
+    UINT totalFrameCount;
+    UINT currFrameIndex;   // Since chunks of audio are written to buffer
+};
+```
+</CodeBlock>
+
+And a separate function will be used to write the audio data to the buffer.
+The function is meant to include the reference to the entire audio data vector (`data`).
+It then writes the audio data from `pos` to `pos + frameCount`.
+If the audio data ends before `pos + frameCount`, it zero-fills the rest.
+<CodeBlock>
+```cpp filename="uwpspatialsoundtest.cpp"
+// Writes frameCount samples from PCM sample vector to buffer
+UINT WriteToAudioObjectBuffer(
+    FLOAT* buffer,
+    UINT frameCount,
+    const std::vector<float> &data,
+    UINT &pos
+) {
+    UINT writeLen = min(frameCount, static_cast<UINT>(max(0, data.size() - pos)));
+    if (writeLen > 0) {
+        memcpy(buffer, data.data() + pos, sizeof(float) * writeLen);
+		pos += writeLen;
+    }
+    if (writeLen < frameCount) {
+		memset(buffer + writeLen, 0, sizeof(float) * (frameCount - writeLen)); // Zero-fill remainder
+    }
+    return writeLen; // Required for ISpatialAudioObjectBase::SetEndOfStream
+}
+```
+</CodeBlock>
+
+## The process
+We'll first have to get the audio device.
+This is done by using the <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/mmdevice-api">MMDevice API</a>.
+`GetDefaultAudioEndpoint` will get the default audio endpoint device and will be accessible through `defaultDevice`.
+<CodeBlock>
+```cpp
+// This is where we get the audio device
+Microsoft::WRL::ComPtr<IMMDeviceEnumerator> deviceEnum;
+Microsoft::WRL::ComPtr<IMMDevice> defaultDevice;
+
+hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator), (void**)&deviceEnum);
+hr = deviceEnum->GetDefaultAudioEndpoint(EDataFlow::eRender, eMultimedia, &defaultDevice);
+```
+</CodeBlock>
+
+We then determine the format of the audio.
+<CodeBlock>
+```cpp
+// This is where the audio format is specified (32-bit, mono, 48kHz, likely according to system settings)
+WAVEFORMATEX format;
+format.wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
+format.wBitsPerSample = 32;
+format.nChannels = 1;
+format.nSamplesPerSec = sampleRate;
+format.nBlockAlign = (format.wBitsPerSample >> 3) * format.nChannels;
+format.nAvgBytesPerSec = format.nBlockAlign * format.nSamplesPerSec;
+format.cbSize = 0;
+```
+</CodeBlock>
+
+We then get an instance of `ISpatialAudioClient` by calling `Activate` on the audio device.
+After that, we check whether the `WAVEFORMATEX` format is supported.
+
+We'll also retrieve the maximum dynamic object count and check whether it can have one.
+If spatial sound is off, it'll return 0.
+If spatial sound is on, it'll depend on what is listed in <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/spatial-sound#microsoft-spatial-sound-runtime-resource-implications">Microsoft Spatial Sound Runtime Resource Implications</a>.
+In general, the maximum number of audio objects you can add will be the maximum dynamic objects minus the static objects excluding the LFE channel (e.g. 7 objects for 7.1).
+To signal for more buffer data, we'll also need an event object.
+<CodeBlock>
+```cpp
+// Activate ISpatialAudioClient on the desired audio-device 
+Microsoft::WRL::ComPtr<ISpatialAudioClient> spatialAudioClient;
+hr = defaultDevice->Activate(__uuidof(ISpatialAudioClient), CLSCTX_INPROC_SERVER, nullptr, (void**)&spatialAudioClient);
+
+hr = spatialAudioClient->IsAudioObjectFormatSupported(&format);
+if (FAILED(hr)) {
+    std::cerr << "Audio object format not supported by spatial audio client." << std::endl;
+    return hr;
+}
+
+// Create the event that will be used to signal the client for more data
+HANDLE bufferCompletionEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+
+// 128 max dynamic objects for Windows Sonic
+UINT32 maxDynamicObjectCount;
+hr = spatialAudioClient->GetMaxDynamicObjectCount(&maxDynamicObjectCount);
+
+if (maxDynamicObjectCount == 0) {
+    // Dynamic objects are unsupported
+    return E_NOTIMPL;
+}
+```
+</CodeBlock>
+
+We then pass the `WAVEFORMATEX` format, buffer completion event object, and maximum dynamic audio object count into the `SpatialAudioObjectRenderStreamActivationParams` structure.
+Most other activation params for the audio stream is based on the <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects">article</a>.
+The <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects">article</a> says to set the maximum dynamic object count to the maximum you'll use.
+Although you can just set `MaxDynamicObjectCount` to the maximum supported number of objects, I assume this is discouraged due to performance reasons.
+
+We'll then pass the `ISpatialAudioObjectRenderStream` interface and the `PROPVARIANT` structure containing the activation params to activate the spatial audio stream.
+<CodeBlock>
+```cpp
+SpatialAudioObjectRenderStreamActivationParams streamParams;
+streamParams.ObjectFormat = &format;
+streamParams.StaticObjectTypeMask = AudioObjectType_None;
+streamParams.MinDynamicObjectCount = 0;
+streamParams.MaxDynamicObjectCount = min(maxDynamicObjectCount, 20);
+streamParams.Category = AudioCategory_GameEffects;
+streamParams.EventHandle = bufferCompletionEvent;
+streamParams.NotifyObject = nullptr;
+
+PROPVARIANT pv;
+PropVariantInit(&pv);
+pv.vt = VT_BLOB;
+pv.blob.cbSize = sizeof(streamParams);
+pv.blob.pBlobData = (BYTE*)&streamParams;
+
+Microsoft::WRL::ComPtr<ISpatialAudioObjectRenderStream> spatialAudioStream;
+hr = spatialAudioClient->ActivateSpatialAudioStream(&pv, __uuidof(spatialAudioStream), (void**)&spatialAudioStream);
+```
+</CodeBlock>
+
+Before we stream, we'll initialize our sound sources.
+Each sound source will require its own `ISpatialAudioObject`.
+This is stored in our `Speaker3dObject` struct we defined to track our sound sources' position, volume, audio channel, frame count, and current frame.
+<CodeBlock>
+```cpp
+// Initializing sound object
+std::vector<Speaker3dObject> speakerObjects;
+for (size_t i = 0; i < positions.size(); i++) {
+    Microsoft::WRL::ComPtr<ISpatialAudioObject> audioObject;
+    hr = spatialAudioStream->ActivateSpatialAudioObject(AudioObjectType::AudioObjectType_Dynamic, &audioObject);
+
+    speakerObjects.push_back({
+        audioObject,
+        positions.at(i),
+        volumes.at(i),
+        &wavSamples.at(channels.at(i)),
+        static_cast<UINT>(wavSamples.at(channels.at(i)).size()),
+        offsets.at(i)
+    });
+}
+```
+</CodeBlock>
+
+Now, we can start streaming the actual audio.
+Before you stream, you'll have to notify the media pipeline to request for audio data by calling `Start` on the `ISpatialAudioObjectRenderStream`.
+
+Within the streaming loop (controlled by the `streaming` signal), you'll have to wait for the signal for more buffer data (`bufferCompletionEvent`) with a reasonable timeout.
+According to the <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects">article</a>, you should "set a reasonable timeout limit, like 100 ms, when waiting for the event because any change to the render type or endpoint will cause that event to never be signaled."
+
+You then notify the system that you are going to fill the audio objects' buffer using `BeginUpdatingAudioObjects`.
+This will return the number of available dynamic audio objects and the number of audio frames that can be written to the buffer.
+
+Then, we'll iterate through every sound source that is available.
+This means we'll have to get the buffer location through `GetBuffer` and write to it using our `WriteToAudioObjectBuffer` helper function.
+Also note that you'll have to specify the properties of the sound source like its position and volume to the `ISpatialAudioObject` for every iteration or it will return to its default value.
+
+If we reach the end of the audio stream for the `ISpatialAudioObject`, we'll notify the audio pipeline that the `ISpatialAudioObject` won't accept audio data anymore by calling `SetEndOfStream`.
+The parameter for the function is the number of frames for the last audio pass.
+This will always be 0 in our case.
+We then free the `ISpatialAudioObject` and remove the sound source from the list of sound sources.
+
+If all sound sources reach the end of the audio stream, there will be nothing in our list of sound sources and we'll set the `streaming` signal to false.
+
+At the conclusion of the streaming loop, you'll have to specify `EndUpdatingAudioObjects` to let the system know the audio can be rendered (as these sound sources are meant to be rendered at the same time).
+<CodeBlock>
+```cpp
+// Start streaming / rendering 
+hr = spatialAudioStream->Start();
+
+bool streaming = true;
+while (streaming) {
+    // Wait for a signal from the audio-engine to start the next processing pass
+    if (WaitForSingleObject(bufferCompletionEvent, 200) != WAIT_OBJECT_0) {
+        break;
+    }
+
+    UINT32 availableDynamicObjectCount;
+    UINT32 frameCount;
+
+    hr = spatialAudioStream->BeginUpdatingAudioObjects(&availableDynamicObjectCount, &frameCount);
+
+    BYTE* buffer;
+    UINT32 bufferLength;
+
+    std::vector<Speaker3dObject>::iterator it = speakerObjects.begin();
+    if (it == speakerObjects.end()) {
+        streaming = false;
+    }
+    while (it != speakerObjects.end()) {
+        hr = it->audioObject->GetBuffer(&buffer, &bufferLength);
+        UINT writeLen = 0;
+
+        // End of data
+        if (it->totalFrameCount > it->currFrameIndex) {
+            // Write audio to available frames
+            writeLen = WriteToAudioObjectBuffer(reinterpret_cast<float*>(buffer), frameCount, *(it->wavSample), it->currFrameIndex);
+
+            // Audio object has to be updated for each iteration, will return to default value if only set once
+            hr = it->audioObject->SetPosition(it->position.x, it->position.y, it->position.z);
+            hr = it->audioObject->SetVolume(it->volume);
+
+            it++;
+        }
+        else {
+            hr = it->audioObject->SetEndOfStream(writeLen);
+            it->audioObject = nullptr;
+            it->totalFrameCount = 0;
+            it = speakerObjects.erase(it);
+        }
+    }
+
+    hr = spatialAudioStream->EndUpdatingAudioObjects();
+}
+```
+</CodeBlock>
+
+Once the stream concludes, we'll stop the audio by calling `Stop` on the `ISpatialAudioObjectRenderStream` and free its resources by calling `Reset` on the `ISpatialAudioObjectRenderStream`.
+It is also recommended to call `CloseHandle` on the signal for more buffer data for resource management purposes.
+<CodeBlock>
+```cpp
+// Stop the stream 
+hr = spatialAudioStream->Stop();
+
+// We don't want to start again, so reset the stream to free its resources.
+hr = spatialAudioStream->Reset();
+
+CloseHandle(bufferCompletionEvent);
+```
+</CodeBlock>
+
+# Putting all of these together
+The entire main function incorporating the structs and functions we defined is shown below.
+<CodeBlock>
+```cpp filename="uwpspatialsoundtest.cpp"
+int main(int argc, char* argv[]) {
+    HeapSetInformation(NULL, HeapEnableTerminationOnCorruption, NULL, 0);
+
+    HRESULT hr = CoInitializeEx(NULL, COINIT_DISABLE_OLE1DDE);
+
+    if (FAILED(hr)) {
+        std::wcerr << "Failed to initialize COM library." << std::endl;
+        return 1;
+    }
+
+    Microsoft::WRL::ComPtr<ISpatialAudioObjectRenderStream> spatialAudioStream;
+    HANDLE bufferCompletionEvent;
+    UINT32 targetRate = 48000;
+
+    // For non-Latin characters
+    if (_setmode(_fileno(stdin), _O_U16TEXT) == -1) {
+        std::wcerr << "stdin UTF16 mode failed." << std::endl;
+        return 1;
+    }
+    if (_setmode(_fileno(stdout), _O_U16TEXT) == -1) {
+        std::wcerr << "stdout UTF16 mode failed." << std::endl;
+        return 1;
+    }
+
+    // Getting file
+    std::wcout << "Path to folder (in quotations): ";
+    std::wstring wavPath;
+    std::getline(std::wcin, wavPath);
+    wavPath.pop_back();
+    wavPath.erase(0, 1);
+    std::wcout << std::endl;
+
+    // Load WAV samples into vector<float>
+	std::vector<float> leftWavSamples;
+    std::vector<float> rightWavSamples;
+    UINT targetRate = 48000;
+    hr = ReadAudioFile(wavPath.c_str(), leftWavSamples, rightWavSamples, targetRate, hr);
+    if (FAILED(hr)) {
+        std::cerr << "File loading failed." << std::endl;
+        return 1;
+    }
+
+    std::vector<std::vector<float>> wavSamples = { leftWavSamples, rightWavSamples };
+    std::vector<Windows::Foundation::Numerics::float3> positions = {
+        Windows::Foundation::Numerics::float3(-1.0f, -1.0f, -1.0f),
+        Windows::Foundation::Numerics::float3(1.0f, -1.0f, -1.0f)
+    };
+    std::vector<size_t> channels = { 0, 1 };
+    std::vector<float> volumes = { 0.5f, 0.5f };
+    std::vector<UINT> offsets = { 0, 0 };
+
+    hr = StreamSpatialAudio(wavSamples, targetRate, positions, channels, volumes, offsets, hr);
+
+    if (FAILED(hr)) {
+        std::cerr << "Spatial audio streaming failed." << std::endl;
+        return 1;
+	}
+    return 0;
+}
+```
+</CodeBlock>
+
+## Explanation of some parts
+The `HeapSetInformation` was specified in the <a href="https://learn.microsoft.com/en-us/windows/win32/medfound/tutorial--decoding-audio">Media Foundation article</a>.
+Although the code still works without it, I would still use it in case something goes wrong in the heap.
+<CodeBlock>
+```cpp
+HeapSetInformation(NULL, HeapEnableTerminationOnCorruption, NULL, 0);
+```
+</CodeBlock>
+
+In case the file name isn't in Latin characters, it is recommended to use something like UTF16 for your file name input.
+Also, once you do this, you might want to exclusively use wide character output streams like `wcout` or `wcerr` for console output.
+<CodeBlock>
+```cpp
+// For non-Latin characters
+if (_setmode(_fileno(stdin), _O_U16TEXT) == -1) {
+    std::wcerr << "stdin UTF16 mode failed." << std::endl;
+    return 1;
+}
+if (_setmode(_fileno(stdout), _O_U16TEXT) == -1) {
+    std::wcerr << "stdout UTF16 mode failed." << std::endl;
+    return 1;
+}
+
+// Getting file
+std::wcout << "Path to folder (in quotations): ";
+std::wstring wavPath;
+std::getline(std::wcin, wavPath);
+wavPath.pop_back();
+wavPath.erase(0, 1);
+std::wcout << std::endl;
+```
+</CodeBlock>
+
+This is just a mere suggestion on what you can use to specify sound objects.
+<CodeBlock>
+```cpp
+std::vector<std::vector<float>> wavSamples = { leftWavSamples, rightWavSamples };
+std::vector<Windows::Foundation::Numerics::float3> positions = {
+    Windows::Foundation::Numerics::float3(-1.0f, -1.0f, -1.0f),
+    Windows::Foundation::Numerics::float3(1.0f, -1.0f, -1.0f)
+};
+std::vector<size_t> channels = { 0, 1 };
+std::vector<float> volumes = { 0.5f, 0.5f };
+std::vector<UINT> offsets = { 0, 0 };
+```
+</CodeBlock>
+
+## `ISpatialAudioClient2`: the less power hungry alternative
+<a href="https://learn.microsoft.com/en-us/windows/win32/api/spatialaudioclient/nn-spatialaudioclient-ispatialaudioclient2">`ISpatialAudioClient2`</a> was introduced on Windows 11 21H2 as a way to wake your app up less (and saving energy) by allocating a much larger buffer (1-2 seconds compared to 10 milliseconds)
+I think this is a drop-in replacement to `ISpatialAudioClient` (as well as inherits and initialized from the object) with some exceptions.
+- The Windows version should support it.
+- You can only use this if the system can offload audio processing to hardware (which can be checked by calling `IsOffloadCapable` on the `ISpatialAudioClient2` object).
+
+I thought I'd include this because it was kind of neat.
+
+## Using this on Windows Sonic for Headphones
+Once you start using this, you'll discover that you couldn't tell the difference between a sound from the front vs. the rear.
+And if you start to move the sound objects around you (like the UWP example provided by Microsoft), it'll sound like the sound is moving in a straight line from left to right through you.
+In general, it felt like the effect was done by changing the left and right channel volume.
+
+# The `ISpatialAudioObjectForHrtf`: a Windows Sonic only HRTF
+So I thought `ISpatialAudioObjectForHrtf` would be different as it would use the head-related transfer function.
+
+At first, it did seem promising as it would use different sound propagation methods (sphere, cone, cardioid).
+As a result, I've come up with the code below before giving up.
+<CodeBlock isExpandable={true}>
+```cpp filename="uwpspatialsoundtest.cpp"
+// uwpspatialsoundtest.cpp : This file contains the 'main' function. Program execution begins and ends there.
+// Most (if not all) of these are from https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects
+
+#include <iostream>
+#include <fstream>
+#include <random>
+#include <stdlib.h>
+#include <locale.h>
+
+#include <windows.foundation.h>
+#include <windowsnumerics.h>
+#include <wrl/wrappers/corewrappers.h>
+#include <wrl/client.h>
+#include <SpatialAudioClient.h>
+#include <SpatialAudioHrtf.h>
+#include <mmdeviceapi.h>
+#include <directxmath.h>
+
+// Audio object struct
+struct Speaker3dObject {
+    Microsoft::WRL::ComPtr<ISpatialAudioObjectForHrtf> audioObject;
+	Windows::Foundation::Numerics::float3 position; // In meters
+    SpatialAudioHrtfOrientation* orientation;
+    float gain; // In decibels
+    std::vector<float>* wavSample;
+    UINT totalFrameCount;
+    UINT currFrameIndex;   // Since chunks of audio are written to buffer
+};
+
+// Writes frameCount samples from PCM sample vector to buffer
+UINT WriteToAudioObjectBuffer(FLOAT* buffer, UINT frameCount, const std::vector<float> &data, UINT &pos) {
+    UINT writeLen = min(frameCount, static_cast<UINT>(max(0, data.size() - pos)));
+    if (writeLen > 0) {
+        memcpy(buffer, data.data() + pos, sizeof(float) * writeLen);
+		pos += writeLen;
+    }
+    if (writeLen < frameCount) {
+		memset(buffer + writeLen, 0, sizeof(float) * (frameCount - writeLen)); // Zero-fill remainder
+    }
+    return writeLen; // Required for ISpatialAudioObjectBase::SetEndOfStream
+}
+
+inline void BiquadFilter(std::vector<float>& wavSamples, float a1, float a2, float b02, float b1) {
+    float y = 0.0f;
+    float prevTerm = 0.0f;
+    float prevPrevTerm = 0.0f;
+    std::vector<float>::iterator it = wavSamples.begin();
+    while (it != wavSamples.end()) {
+        y = b02 * (*it) + prevTerm;
+        prevTerm = b1 * (*it) - a1 * y + prevPrevTerm;
+        prevPrevTerm = b02 * (*it) - a2 * y;
+        *it = y;
+        it++;
+    }
+}
+
+inline void OnePole(std::vector<float>& wavSamples, float freqCutoff, UINT sampleRate) {
+    float a = std::exp(-2.0f * std::_Pi_val * freqCutoff / sampleRate);
+    float b = 1.0f - a;
+    float prevY = 0.0f;
+    std::vector<float>::iterator it = wavSamples.begin();
+    while (it != wavSamples.end()) {
+        *it = b * (*it) + a * prevY;
+        prevY = *it;
+        it++;
+    }
+}
+
+// Low-pass filter, uses two second-order IIR filters
+void LowPassFilter(std::vector<float> &wavSamples, float freqCutoff, UINT sampleRate) {
+    // Approximation of w0 from https://dsp.stackexchange.com/questions/28308/3-db-cut-off-frequency-of-exponentially-weighted-moving-average-filter/28314#28314
+    // Biquad filter from https://webaudio.github.io/Audio-EQ-Cookbook/audio-eq-cookbook.html
+	// The Q values are from 4th-order Butterworth low-pass Perplexity got that I don't feel qualified to understand
+    float w0 = 2.0f * std::_Pi_val * freqCutoff / sampleRate;
+	float cosw0 = std::cos(w0);
+	float sinw0 = std::sin(w0);
+    float alpha0 = sinw0 * 0.5f * 0.54119611f;
+	float alpha1 = sinw0 * 0.5f * 1.30656296f;
+
+	float a0 = 1.0f + alpha0;
+	float a1 = -2.0f * cosw0;
+	float a2 = 1.0f - alpha0;
+    float b1 = 1.0f - cosw0;
+	float b02 = b1 * 0.5f;
+    BiquadFilter(wavSamples, a1 / a0, a2 / a0, b02 / a0, b1 / a0);
+
+    a0 = 1.0f + alpha1;
+    a2 = 1.0f - alpha1;
+    BiquadFilter(wavSamples, a1 / a0, a2 / a0, b02 / a0, b1 / a0);
+}
+
+// High-pass filter, same concept
+void HighPassFilter(std::vector<float>& wavSamples, float freqCutoff, UINT sampleRate) {
+    float w0 = 2.0f * std::_Pi_val * freqCutoff / sampleRate;
+    float cosw0 = std::cos(w0);
+    float sinw0 = std::sin(w0);
+    float alpha0 = sinw0 * 0.5f * 0.54119611f;
+    float alpha1 = sinw0 * 0.5f * 1.30656296f;
+
+    float a0 = 1.0f + alpha0;
+    float a1 = -2.0f * cosw0;
+    float a2 = 1.0f - alpha0;
+    float b1 = -(1.0f + cosw0);
+    float b02 = -b1 * 0.5f;
+    BiquadFilter(wavSamples, a1 / a0, a2 / a0, b02 / a0, b1 / a0);
+
+    a0 = 1.0f + alpha1;
+    a2 = 1.0f - alpha1;
+    BiquadFilter(wavSamples, a1 / a0, a2 / a0, b02 / a0, b1 / a0);
+}
+
+// Calculates orientation matrix, provided by Microsoft article
+DirectX::XMMATRIX CalculateEmitterOrientationMatrix(Windows::Foundation::Numerics::float3 listenerOrientationFront, Windows::Foundation::Numerics::float3 emitterDirection)
+{
+    DirectX::XMVECTOR vListenerDirection = DirectX::XMLoadFloat3(&listenerOrientationFront);
+    DirectX::XMVECTOR vEmitterDirection = DirectX::XMLoadFloat3(&emitterDirection);
+    DirectX::XMVECTOR vCross = DirectX::XMVector3Cross(vListenerDirection, vEmitterDirection);
+    DirectX::XMVECTOR vDot = DirectX::XMVector3Dot(vListenerDirection, vEmitterDirection);
+    DirectX::XMVECTOR vAngle = DirectX::XMVectorACos(vDot);
+    float angle = DirectX::XMVectorGetX(vAngle);
+
+    // The angle must be non-zero
+    if (fabsf(angle) > FLT_EPSILON)
+    {
+        // And less than PI
+        if (fabsf(angle) < DirectX::XM_PI)
+        {
+            return DirectX::XMMatrixRotationAxis(vCross, angle);
+        }
+
+        // If equal to PI, find any other non-collinear vector to generate the perpendicular vector to rotate about
+        else
+        {
+            DirectX::XMFLOAT3 vector = { 1.0f, 1.0f, 1.0f };
+            if (listenerOrientationFront.x != 0.0f)
+            {
+                vector.x = -listenerOrientationFront.x;
+            }
+            else if (listenerOrientationFront.y != 0.0f)
+            {
+                vector.y = -listenerOrientationFront.y;
+            }
+            else // if (_listenerOrientationFront.z != 0.0f)
+            {
+                vector.z = -listenerOrientationFront.z;
+            }
+            DirectX::XMVECTOR vVector = DirectX::XMLoadFloat3(&vector);
+            vVector = DirectX::XMVector3Normalize(vVector);
+            vCross = DirectX::XMVector3Cross(vVector, vEmitterDirection);
+            return DirectX::XMMatrixRotationAxis(vCross, angle);
+        }
+    }
+
+    // If the angle is zero, use an identity matrix
+    return DirectX::XMMatrixIdentity();
+}
+
+
+// These 24-bit WAV loading utility functions are generated by Copilot.
+// TODO: Change them to dynamically load other bit depths, maybe use avlibcodec (?)
+
+// Convert signed 24-bit little-endian (3 bytes) to int32 with sign extension
+static inline int32_t Int24ToInt32(const uint8_t bytes[3])
+{
+    int32_t val = (bytes[0]) | (bytes[1] << 8) | (bytes[2] << 16);
+    // sign extend if negative (bit 23 set)
+    if (val & 0x00800000) {
+        val |= 0xFF000000;
+    }
+    return val;
+}
+
+// Load a mono 24-bit PCM WAV file and convert to float32 samples in range [-1,1).
+// Returns true on success and fills outSamples and outSampleRate.
+bool LoadWav24ToFloat(const std::wstring& path, std::vector<float>& outSamples, UINT& outSampleRate)
+{
+    std::ifstream ifs(path, std::ios::binary);
+    if (!ifs) return false;
+
+    // Read RIFF header
+    char riff[4];
+    uint32_t riffChunkSize = 0;
+    char wave[4];
+    ifs.read(riff, 4);
+    ifs.read(reinterpret_cast<char*>(&riffChunkSize), 4);
+    ifs.read(wave, 4);
+    if (std::strncmp(riff, "RIFF", 4) != 0 || std::strncmp(wave, "WAVE", 4) != 0)
+        return false;
+
+    // Parse chunks
+    uint16_t audioFormat = 0;
+    uint16_t numChannels = 0;
+    uint32_t sampleRate = 0;
+    uint16_t bitsPerSample = 0;
+    std::vector<uint8_t> dataBytes;
+
+    while (ifs && !ifs.eof()) {
+        char chunkId[4];
+        uint32_t chunkSize = 0;
+        ifs.read(chunkId, 4);
+        if (!ifs) break;
+        ifs.read(reinterpret_cast<char*>(&chunkSize), 4);
+        if (!ifs) break;
+
+        std::streampos nextChunk = ifs.tellg();
+        nextChunk += static_cast<std::streamoff>(chunkSize);
+
+        if (std::strncmp(chunkId, "fmt ", 4) == 0) {
+            // Read format chunk (at least 16 bytes)
+            if (chunkSize < 16) return false;
+            ifs.read(reinterpret_cast<char*>(&audioFormat), sizeof(audioFormat));
+            ifs.read(reinterpret_cast<char*>(&numChannels), sizeof(numChannels));
+            ifs.read(reinterpret_cast<char*>(&sampleRate), sizeof(sampleRate));
+            uint32_t byteRate = 0;
+            uint16_t blockAlign = 0;
+            ifs.read(reinterpret_cast<char*>(&byteRate), sizeof(byteRate));
+            ifs.read(reinterpret_cast<char*>(&blockAlign), sizeof(blockAlign));
+            ifs.read(reinterpret_cast<char*>(&bitsPerSample), sizeof(bitsPerSample));
+            // skip any extra fmt bytes
+        }
+        else if (std::strncmp(chunkId, "data", 4) == 0) {
+            dataBytes.resize(chunkSize);
+            ifs.read(reinterpret_cast<char*>(dataBytes.data()), chunkSize);
+        }
+        // advance to next chunk (handle odd chunk sizes)
+        ifs.seekg(nextChunk);
+    }
+
+    if (audioFormat != 1) return false; // expect PCM (1)
+    if (numChannels != 1) return false;  // expect mono
+    if (bitsPerSample != 24) return false; // expect 24-bit
+
+    // Convert 3-byte samples to float
+    const size_t bytesPerSample = 3;
+    size_t sampleCount = dataBytes.size() / bytesPerSample;
+    outSamples.resize(sampleCount);
+    const float denom = 8388608.0f; // 2^23
+    for(size_t i = 0; i < sampleCount; ++i) {
+        const uint8_t* b = &dataBytes[i * bytesPerSample];
+        int32_t s = Int24ToInt32(b);
+        outSamples[i] = static_cast<float>(s) / denom;
+    }
+
+    outSampleRate = sampleRate;
+    return true;
+}
+
+// Linear resampler from inRate -> outRate.
+// Simple, fast, acceptable for small test/demo. Use a higher-quality library for production.
+void ResampleLinear(const std::vector<float>& in, UINT inRate, UINT outRate, std::vector<float>& out)
+{
+    if (inRate == outRate) {
+        out = in;
+        return;
+    }
+    if (in.empty()) {
+        out.clear();
+        return;
+    }
+
+    double ratio = static_cast<double>(outRate) / static_cast<double>(inRate);
+    size_t outLen = static_cast<size_t>(std::floor(in.size() * ratio + 0.5));
+    out.resize(outLen);
+
+    for (size_t j = 0; j < outLen; ++j) {
+        double srcPos = static_cast<double>(j) / ratio;
+        size_t i0 = static_cast<size_t>(std::floor(srcPos));
+        double frac = srcPos - static_cast<double>(i0);
+        float s0 = in[min(i0, in.size() - 1)];
+        float s1 = in[min(i0 + 1, in.size() - 1)];
+        out[j] = static_cast<float>((1.0 - frac) * s0 + frac * s1);
+    }
+}
+
+
+
+int main(int argc, char* argv[]) {
+    // Getting WAV file (test file uses 24-bit, mono, 44.100kHz at the moment)
+    if (argc < 3) {
+		std::cerr << "Need a path to a mono 24-bit WAV file as an argument, separate LR channels." << std::endl;
+        return 1;
+    }
+
+	std::setlocale(LC_ALL, ""); // Default locale
+	size_t requiredSize = strlen(argv[1]) + 1;
+	wchar_t* leftPwc = new wchar_t[requiredSize];
+    size_t outWSize;
+	mbstowcs_s(&outWSize, leftPwc, requiredSize, argv[1], requiredSize - 1);
+    std::wstring leftWavPath(leftPwc);
+    delete[] leftPwc;
+
+    requiredSize = strlen(argv[2]) + 1;
+    wchar_t* rightPwc = new wchar_t[requiredSize];
+    mbstowcs_s(&outWSize, rightPwc, requiredSize, argv[2], requiredSize - 1);
+    std::wstring rightWavPath(rightPwc);
+    delete[] rightPwc;
+
+    std::wcout << "Loading WAV files: " << leftWavPath << " (left), " << rightWavPath << " (right)" << std::endl;
+
+    // Load WAV samples into vector<float>
+	std::vector<float> leftWavSamples;
+	UINT wavSampleRate;
+	if (!LoadWav24ToFloat(leftWavPath, leftWavSamples, wavSampleRate)) {
+        std::cerr << "Failed to load WAV (left)." << std::endl;
+        return 1;
+	}
+
+	//HighPassFilter(leftWavSamples, 200.0f, wavSampleRate);
+
+    // Resample to 48kHz
+    const UINT targetRate = 48000;
+    if (wavSampleRate != targetRate) {
+        std::vector<float> resampled;
+        ResampleLinear(leftWavSamples, wavSampleRate, targetRate, resampled);
+        leftWavSamples.swap(resampled);
+    }
+
+
+    std::vector<float> rightWavSamples;
+    if (!LoadWav24ToFloat(rightWavPath, rightWavSamples, wavSampleRate)) {
+        std::cerr << "Failed to load WAV (right)." << std::endl;
+        return 1;
+    }
+    //HighPassFilter(rightWavSamples, 200.0f, wavSampleRate);
+    if (wavSampleRate != targetRate) {
+        std::vector<float> resampled;
+        ResampleLinear(rightWavSamples, wavSampleRate, targetRate, resampled);
+        rightWavSamples.swap(resampled);
+    }
+
+
+    // This is where we get the audio device
+    HRESULT hr = CoInitialize(nullptr);
+    Microsoft::WRL::ComPtr<IMMDeviceEnumerator> deviceEnum;
+    Microsoft::WRL::ComPtr<IMMDevice> defaultDevice;
+
+    hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator), (void**)&deviceEnum);
+    hr = deviceEnum->GetDefaultAudioEndpoint(EDataFlow::eRender, eMultimedia, &defaultDevice);
+
+
+
+    // This is where the audio format is specified (32-bit, mono, 48kHz, likely according to system settings)
+    WAVEFORMATEX format;
+    format.wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
+    format.wBitsPerSample = 32;
+    format.nChannels = 1;
+    format.nSamplesPerSec = targetRate;
+    format.nBlockAlign = (format.wBitsPerSample >> 3) * format.nChannels;
+    format.nAvgBytesPerSec = format.nBlockAlign * format.nSamplesPerSec;
+    format.cbSize = 0;
+
+
+
+    // Activate ISpatialAudioClient on the desired audio-device 
+    Microsoft::WRL::ComPtr<ISpatialAudioClient> spatialAudioClient;
+    hr = defaultDevice->Activate(__uuidof(ISpatialAudioClient), CLSCTX_INPROC_SERVER, nullptr, (void**)&spatialAudioClient);
+
+    Microsoft::WRL::ComPtr<ISpatialAudioObjectRenderStreamForHrtf> spatialAudioStreamHrtf;
+	hr = spatialAudioClient->IsSpatialAudioStreamAvailable(__uuidof(ISpatialAudioObjectRenderStreamForHrtf), nullptr);
+    if (FAILED(hr)) {
+        std::cerr << "HRTF spatial audio not supported by spatial audio client." << std::endl;
+        return 1;
+    }
+
+    hr = spatialAudioClient->IsAudioObjectFormatSupported(&format);
+    if (FAILED(hr)) {
+		std::cerr << "Audio object format not supported by spatial audio client." << std::endl;
+        return 1;
+    }
+
+    // Create the event that will be used to signal the client for more data
+    HANDLE bufferCompletionEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+
+    // 220 max dynamic objects for Windows Sonic UWP
+    UINT32 maxDynamicObjectCount;
+    hr = spatialAudioClient->GetMaxDynamicObjectCount(&maxDynamicObjectCount);
+
+    if (maxDynamicObjectCount == 0) {
+        // Dynamic objects are unsupported
+        return 1;
+    }
+
+    SpatialAudioHrtfActivationParams streamParams;
+
+    streamParams.ObjectFormat = &format;
+    streamParams.StaticObjectTypeMask = AudioObjectType_None;
+    streamParams.MinDynamicObjectCount = 0;
+    streamParams.MaxDynamicObjectCount = min(maxDynamicObjectCount, 4);
+    streamParams.Category = AudioCategory_GameEffects;
+    streamParams.EventHandle = bufferCompletionEvent;
+    streamParams.NotifyObject = nullptr;
+
+	// What is specified by the Microsoft article, with some modifications
+    SpatialAudioHrtfDistanceDecay decayModel;
+    decayModel.CutoffDistance = 20.0f;
+    decayModel.MaxGain = 3.98f;
+    decayModel.MinGain = float(1.58439 * pow(10, -5));
+    decayModel.Type = SpatialAudioHrtfDistanceDecayType::SpatialAudioHrtfDistanceDecay_CustomDecay;
+    decayModel.UnityGainDistance = 1.0f;
+
+    streamParams.DistanceDecay = &decayModel;
+
+    SpatialAudioHrtfDirectivity directivity;
+    directivity.Type = SpatialAudioHrtfDirectivityType::SpatialAudioHrtfDirectivity_Cardioid;
+    directivity.Scaling = 1.0f;
+
+    SpatialAudioHrtfDirectivityCardioid cardioid;
+    cardioid.directivity = directivity;
+	cardioid.Order = 0.0f; // Probably how forward focused the cardioid is, higher is narrower (probably useful for different frequencies)
+
+    SpatialAudioHrtfDirectivityUnion directivityUnion;
+    directivityUnion.Cardiod = cardioid; // Spelling typo
+    streamParams.Directivity = &directivityUnion;
+
+    SpatialAudioHrtfEnvironmentType environment = SpatialAudioHrtfEnvironmentType::SpatialAudioHrtfEnvironment_Small;
+    streamParams.Environment = &environment;
+
+    SpatialAudioHrtfOrientation orientation = { 1,0,0,0,1,0,0,0,1 }; // identity matrix
+    streamParams.Orientation = &orientation;
+
+    PROPVARIANT pv;
+    PropVariantInit(&pv);
+    pv.vt = VT_BLOB;
+    pv.blob.cbSize = sizeof(streamParams);
+    pv.blob.pBlobData = (BYTE*)&streamParams;
+
+    hr = spatialAudioClient->ActivateSpatialAudioStream(&pv, __uuidof(spatialAudioStreamHrtf), (void**)&spatialAudioStreamHrtf);
+
+
+    // Start streaming / rendering 
+    hr = spatialAudioStreamHrtf->Start();
+
+	std::vector<std::vector<float>> wavSamples = { leftWavSamples, rightWavSamples };
+    std::vector<Windows::Foundation::Numerics::float3> positions = {
+        Windows::Foundation::Numerics::float3(-1.0f, 0.0f, 0.0f),
+        //Windows::Foundation::Numerics::float3(1.0f, 1.0f, 0.0f)
+	};
+    std::vector<Windows::Foundation::Numerics::float3> directions = {
+		Windows::Foundation::Numerics::float3(1.0f, 0.0f, 0.0f), // Assumed unit vector at the moment
+        Windows::Foundation::Numerics::float3(1.0f, 0.0f, 0.0f)
+    };
+	std::vector<size_t> channels = { 0, 1 };
+    std::vector<Speaker3dObject> speakerObjects;
+
+    Windows::Foundation::Numerics::float3 listenerDirection(0.0f, 0.0f, 1.0f);
+
+    // Initializing sound object
+    for (size_t i = 0; i < positions.size(); i++) {
+        Microsoft::WRL::ComPtr<ISpatialAudioObjectForHrtf> audioObject;
+        hr = spatialAudioStreamHrtf->ActivateSpatialAudioObjectForHrtf(AudioObjectType::AudioObjectType_Dynamic, &audioObject);
+
+        DirectX::XMFLOAT4X4 rotationMatrix;
+        DirectX::XMMATRIX rotation = CalculateEmitterOrientationMatrix(directions.at(i), listenerDirection);
+        DirectX::XMStoreFloat4x4(&rotationMatrix, rotation); // Unload from vector registor
+        SpatialAudioHrtfOrientation orientation = {
+            rotationMatrix._11, rotationMatrix._12, rotationMatrix._13,
+            rotationMatrix._21, rotationMatrix._22, rotationMatrix._23,
+            rotationMatrix._31, rotationMatrix._32, rotationMatrix._33
+        };
+
+        speakerObjects.push_back({
+            audioObject,
+            positions.at(i),
+			&orientation,
+            20.0f,
+            &wavSamples.at(channels.at(i)),
+            static_cast<UINT>(wavSamples.at(channels.at(i)).size()),
+            0
+        });
+    }
+
+	std::cout << "Beginning spatial audio streaming." << std::endl;
+    
+	float rotateAngle = 0.0f;
+    bool streaming = true;
+    while (streaming) {
+        // Wait for a signal from the audio-engine to start the next processing pass
+        if (WaitForSingleObject(bufferCompletionEvent, 100) != WAIT_OBJECT_0) {
+            break;
+        }
+
+        UINT32 availableDynamicObjectCount;
+        UINT32 frameCount;
+
+        hr = spatialAudioStreamHrtf->BeginUpdatingAudioObjects(&availableDynamicObjectCount, &frameCount);
+
+        BYTE* buffer;
+        UINT32 bufferLength;
+
+        std::vector<Speaker3dObject>::iterator it = speakerObjects.begin();
+        while (it != speakerObjects.end()) {
+            hr = it->audioObject->GetBuffer(&buffer, &bufferLength);
+            UINT writeLen = 0;
+
+            // End of data
+            if (it->totalFrameCount >= it->currFrameIndex) {
+                // Write audio to available frames
+                writeLen = WriteToAudioObjectBuffer(reinterpret_cast<float*>(buffer), frameCount, *(it->wavSample), it->currFrameIndex);
+
+                // Audio object has to be updated for each iteration, will return to default value if only set once
+				hr = it->audioObject->SetPosition(it->position.x, it->position.y, it->position.z);
+                hr = it->audioObject->SetGain(it->gain); // Gain just doesn't work
+				rotateAngle += 0.02f;
+				it->position = Windows::Foundation::Numerics::float3(cos(rotateAngle), 0.0f, sin(rotateAngle));
+				hr = it->audioObject->SetDistanceDecay(&decayModel); // Decay (not cutoff) depends on what direction the audio source is facing, some directions don't have decay at all
+				hr = it->audioObject->SetDirectivity(&directivityUnion); // Directivity likely sets decay rate for different directions
+                hr = it->audioObject->SetEnvironment(environment);
+                hr = it->audioObject->SetOrientation(&orientation);
+
+                it++;
+            }
+            else {
+                hr = it->audioObject->SetEndOfStream(writeLen);
+                it->audioObject = nullptr;
+                it->totalFrameCount = 0;
+				it = speakerObjects.erase(it);
+                streaming = false;
+            }
+        }
+
+        hr = spatialAudioStreamHrtf->EndUpdatingAudioObjects();
+    }
+
+    // Stop the stream 
+    hr = spatialAudioStreamHrtf->Stop();
+
+    // We don't want to start again, so reset the stream to free it's resources.
+    hr = spatialAudioStreamHrtf->Reset();
+
+    CloseHandle(bufferCompletionEvent);
+
+    return 0;
+}
+```
+</CodeBlock>
+
+The main focus of this is that the sound objects now have orientations due to the different sound propagation methods.
+This means using DirectX to calculate a rotation matrix from the listener's direction to the sound object's direction (as specified by the <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects">article</a>).
+
+But, the main-er focus is the directivity.
+Which goes into the next section.
+<CodeBlock>
+```cpp
+// What is specified by the Microsoft article, with some modifications
+SpatialAudioHrtfDistanceDecay decayModel;
+decayModel.CutoffDistance = 20.0f;
+decayModel.MaxGain = 3.98f;
+decayModel.MinGain = float(1.58439 * pow(10, -5));
+decayModel.Type = SpatialAudioHrtfDistanceDecayType::SpatialAudioHrtfDistanceDecay_CustomDecay;
+decayModel.UnityGainDistance = 1.0f;
+
+streamParams.DistanceDecay = &decayModel;
+
+SpatialAudioHrtfDirectivity directivity;
+directivity.Type = SpatialAudioHrtfDirectivityType::SpatialAudioHrtfDirectivity_Cardioid;
+directivity.Scaling = 1.0f;
+
+SpatialAudioHrtfDirectivityCardioid cardioid;
+cardioid.directivity = directivity;
+cardioid.Order = 0.0f; // Probably how forward focused the cardioid is, higher is narrower (probably useful for different frequencies)
+
+SpatialAudioHrtfDirectivityUnion directivityUnion;
+directivityUnion.Cardiod = cardioid; // Spelling typo
+streamParams.Directivity = &directivityUnion;
+```
+</CodeBlock>
+
+## Discovering how fiddly this is
+Once you try to change around stuff, you'll discover that there is no volume control.
+If you try to change the volume using `SetGain` (like what the <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects">article</a> said) for the audio source, it doesn't change.
+
+So I then looked into the <a href="https://learn.microsoft.com/en-us/windows/win32/api/spatialaudiohrtf/nf-spatialaudiohrtf-ispatialaudioobjectforhrtf-setgain">documentation</a> and found that it only works with `SpatialAudioHrtfDistanceDecay_CustomDecay` decay model type instead of the `SpatialAudioHrtfDistanceDecay_NaturalDecay` the <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects">article</a> specified.
+Even then, I wasn't really able to change the gain, let alone find a way to define the custom gain curve for `SpatialAudioHrtfDistanceDecay_CustomDecay`.
+
+In addition, I think (but can't confirm) the decay model is based on some kind of multiple-based solution as sound objects pointing directly towards you does not observe sound decay until it turns completely silent when it reaches the cutoff distance (unlike any other directions which observes sound decay).
+
+# Why I made this and why Spatial Audio API doesn't fit
+I don't know if I'm using this API wrong or I'm misunderstanding how it works.
+However, finding any information on the Spatial Audio API has been pretty challenging for me.
+
+I actually made this to create a way to roughly simulate a car stereo to use in spirited drives in Assetto Corsa.
+That's the reason why the GitHub source code contains low/high pass filters (for different speakers) and tanh saturators (for that "unrefined boominess").
+This is certainly by no means an accurate simulation at all.
+Car stereos are one of the most complex audio topics as a car is made of different materials of different shapes inside and out.
+
+I actually thought at first I could simulate the sound reflections by creating a new audio object with a new offset and position.
+After looking into the general topic a bit more, I discovered that it's not as simple by a long shot.
+The different ways the sound propagates from a speaker and reflect/absorb on a certain surface alone make this API pretty unfeasible.
+
+# Going forward
+## Changing how I process audio
+The implementation currently loads the entire audio file into memory and creates multiple processed audio channels that are as large as the original raw sample.
+This means it takes a ton of memory to run.
+I think for an average 3-5 minute audio file the memory usage peaks at about 1 GB for processing and decreases to about 600 MB for streaming.
+In addition, the helper functions I made like the DSP functions and the `WriteToAudioObjectBuffer` function assumes the entire audio data is loaded and precalculated.
+Since I want to eventually implement radio streams and scrubbing for my frontend application, I want to create a way to lazily manipulate the audio samples.
+
+## Moving away from Spatial Audio API
+Since Spatial Audio API isn't fit for my purpose, I want to move to just using the Windows XAudio API (specifically XAudio2 due to its support for DSP on the fly) to stream stereo audio and make my own simulation that feeds into the output audio stream.
+I still want to use Windows APIs as I want to gain a better understanding of the operating system.
+
+I'm currently looking into using ray tracing for high frequency audio and having a "gradient" from low frequency (which moves air) and high frequency (which acts more like light beams).
+As well as trying to figure out how different materials (e.g. the human head, car seats) might change the frequency response.
+In addition, I'm looking into ways to approximate multiple similar sounding audio sources heard within a very short delay from each other (if it exists).
+
+Anyways, I think there's a lot to look into that I'll have to understand.

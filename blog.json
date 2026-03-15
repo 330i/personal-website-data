@@ -1,0 +1,26 @@
+{
+    "1": {
+        "timestamp": 1765771839,
+        "type": "blog",
+        "title": "First Blog",
+        "description": "Experiementing with a new way to jot down my ideas."
+    },
+    "2": {
+        "timestamp": 1766648837,
+        "type": "ideation",
+        "title": "(Not Started) The Toyota AVC-LAN",
+        "description": "A convoluted way to add aux input to early 2000s Toyota vehicles by emulating the CD changer."
+    },
+    "3": {
+        "timestamp": 1767771249,
+        "type": "blog",
+        "title": "Microsoft Spatial Sound and Media Foundation",
+        "description": "Attempting to use the Windows API used by Windows Sonic and Dolby Atmos."
+    },
+    "4": {
+        "timestamp": 1767771249,
+        "type": "ideation",
+        "title": "(In Progress) Approximating Car Audio",
+        "description": "Jotting down notes on how I could approximate how car audio sounds."
+    }
+}

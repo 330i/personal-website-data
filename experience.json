@@ -1,0 +1,366 @@
+{
+    "Work Experience": [
+        {
+            "title": "Global Data Hub App",
+            "image": "/experience/Global Data Hub App.png",
+            "location": "Hines",
+            "date": "June 2022 -",
+            "tagline": "Investment pipeline and data management platform for Hines.",
+            "desc": [
+                "Worked on some feature developments"
+            ],
+            "tech": {
+                "frontend": ["Next.js", "Tailwind CSS", "jQuery"],
+                "backend": ["Django"],
+                "api": [],
+                "other": []
+            },
+            "link": "https://www.hines.com/"
+        }
+    ],
+    "Project Experience": [
+        {
+            "title": "Project Pandugg",
+            "image": "/experience/Project Pandugg.png",
+            "location": "CSCE 331 Project 3 (Texas A&M University)",
+            "date": "Fall 2024",
+            "tagline": "An integrated point-of-sale system web app intended (by class) for Panda Express with OpenAI powered voice ordering.",
+            "desc": [
+                "Worked on kiosk UI and accessibility features (excluding voice ordering), reporting values and charting, Google OAuth 2.0 implementation, management screen general layout, checkout menu code system, and some parts of database connection."
+            ],
+            "tech": {
+                "frontend": ["React", "Bootstrap"],
+                "backend": ["Node.js", "PostgreSQL"],
+                "api": ["ChatGPT", "Google OAuth 2.0"],
+                "other": []
+            }
+        },
+        {
+            "title": "Project VANOS",
+            "image": "/experience/Project VANOS.png",
+            "location": "CSCE 312 Lab 6 (Texas A&M University)",
+            "date": "Spring 2024",
+            "tagline": "A y86 (x86 based RISC) instruction set architecture processor with a variable timing system.",
+            "desc": [
+                "Worked on the architecture of each stage and timing system."
+            ],
+            "tech": {
+                "frontend": [],
+                "backend": [],
+                "api": [],
+                "other": ["Logisim Evolution"]
+            }
+        },
+        {
+            "title": "Project Wobblestone",
+            "image": "/experience/Project Wobblestone.png",
+            "location": "CSCE 314 Final Project (Texas A&M University)",
+            "date": "Spring 2024",
+            "tagline": "An imitation of Wordle made with JavaFX.",
+            "desc": [
+                "Worked on everything as it was a personal assignment."
+            ],
+            "tech": {
+                "frontend": ["JavaFX"],
+                "backend": ["Java"],
+                "api": [],
+                "other": []
+            }
+        },
+        {
+            "title": "Project ParKit",
+            "image": "/experience/Project ParKit.png",
+            "location": "Computer Science 3 Data Structures PreAP Final Project (Cinco Ranch High School)",
+            "date": "Spring 2021",
+            "tagline": "QR Code based parking space sharing app.",
+            "desc": [
+                "Worked on everything as it was a personal assignment."
+            ],
+            "tech": {
+                "frontend": ["Flutter", "Dart"],
+                "backend": ["Firebase"],
+                "api": ["Open Location Code", "Google Sign-In"],
+                "other": []
+            },
+            "link": "https://github.com/330i/ParkingProject"
+        },
+        {
+            "title": "CRHS Parking App",
+            "image": "/experience/CRHS Parking App.png",
+            "location": "Cinco Ranch High School",
+            "date": "Summer 2020 and Summer 2021",
+            "tagline": "Online solution for Cinco Ranch High School parking registration",
+            "desc": [
+                "Worked on Google Sign-In security policy and app in general.",
+                "Unused due to support longevity issues and administration's decision to use a different solution."
+            ],
+            "tech": {
+                "frontend": ["Flutter", "Dart"],
+                "backend": ["Firebase"],
+                "api": ["Google Sign-In"],
+                "other": []
+            },
+            "link": "https://github.com/enkyuan/crhs_parking"
+        }
+    ],
+    "Hackathon Experience": [
+        {
+            "title": "SchwabBot",
+            "image": "/experience/SchwabBot.png",
+            "location": "TIDAL Hackathon | Texas A&M University, College Station, TX",
+            "date": "October 20, 2024",
+            "tagline": "Generative AI powered stock trend analysis advisor.",
+            "desc": [
+                "Worked on Finanical Modeling Prep API implementation."
+            ],
+            "tech": {
+                "frontend": ["React", "Tailwind CSS", "Spline"],
+                "backend": ["Node.js"],
+                "api": ["ChatGPT", "Financial Modeling Prep API"],
+                "other": []
+            },
+            "link": "https://devpost.com/software/schwab-bot"
+        },
+        {
+            "title": "ZenDen",
+            "image": "/experience/ZenDen.png",
+            "location": "TAMUHack | Texas A&M University, College Station, TX",
+            "date": "January 29, 2023",
+            "tagline": "Mental health solution for your room from your camera.",
+            "desc": [
+                "Mostly worked on frontend code."
+            ],
+            "tech": {
+                "frontend": ["Flutter", "Dart"],
+                "backend": ["Python"],
+                "api": ["Google Cloud Vision API"],
+                "other": []
+            },
+            "link": "https://devpost.com/software/room-design-mental-health"
+        },
+        {
+            "title": "Ecarnomy",
+            "image": "/experience/Ecarnomy.png",
+            "location": "TAMUHack | Texas A&M University, College Station, TX",
+            "date": "January 30, 2022",
+            "tagline": "Automobile logistics tracking app.",
+            "desc": [
+                "Worked on API code, database code, and UI.",
+                "Taught one first time team member."
+            ],
+            "tech": {
+                "frontend": ["Flutter", "Dart"],
+                "backend": ["Firebase"],
+                "api": ["NHTSA API"],
+                "other": []
+            },
+            "link": "https://devpost.com/software/ecarnomy"
+        },
+        {
+            "title": "OffNet",
+            "image": "/experience/OffNet.png",
+            "location": "Explore Hacks | Online / International",
+            "date": "July 25, 2021",
+            "tagline": "Computer screen time tracker using computer vision.",
+            "desc": [
+                "Worked on computer vision, database code, and UI.",
+                "Taught two first time team members."
+            ],
+            "tech": {
+                "frontend": ["Flutter", "Dart", "HTML", "CSS", "JavaScript"],
+                "backend": ["Firebase", "Python", "OpenCV"],
+                "api": [],
+                "other": []
+            },
+            "link": "https://devpost.com/software/offnet"
+        },
+        {
+            "title": "Step by Step",
+            "image": "/experience/Step by Step.png",
+            "location": "Citrus Hack | Online / International",
+            "date": "April 11, 2021",
+            "tagline": "A virtual fitness tournament app.",
+            "desc": [
+                "Worked on competition logic and database code."
+            ],
+            "tech": {
+                "frontend": ["Flutter", "Dart"],
+                "backend": ["Firebase"],
+                "api": [],
+                "other": []
+            },
+            "link": "https://devpost.com/software/step-by-step-w6bmod"
+        },
+        {
+            "title": "Away",
+            "image": "/experience/Away.png",
+            "location": "Hackdemonium | Online / International (High School Students)",
+            "date": "January 17, 2021",
+            "tagline": "A waste tracking and eco-friendly recommendation app.",
+            "desc": [
+                "Worked on database code."
+            ],
+            "tech": {
+                "frontend": ["Flutter", "Dart", "Unity"],
+                "backend": ["Firebase", "Beautiful Soup", "Python"],
+                "api": [],
+                "other": []
+            },
+            "link": "https://devpost.com/software/away"
+        },
+        {
+            "title": "Binge",
+            "image": "/experience/Binge.png",
+            "location": "HackTheCulture | Online / International",
+            "date": "September 27, 2020",
+            "tagline": "An online office app.",
+            "desc": [
+                "Worked on video chat and database code."
+            ],
+            "tech": {
+                "frontend": ["Flutter", "Dart"],
+                "backend": ["Firebase", "Agora.io"],
+                "api": [],
+                "other": []
+            },
+            "link": "https://devpost.com/software/binge-6hzr90"
+        },
+        {
+            "title": "TidePool",
+            "image": "/experience/TidePool.png",
+            "location": "Supersonic, Subatomic, Java Hackathon | Online / International",
+            "date": "July 22, 2020",
+            "tagline": "A carpooling app mainly for children with extracurricular activities.",
+            "desc": [
+                "Worked on maps and database code."
+            ],
+            "tech": {
+                "frontend": ["Flutter", "Dart"],
+                "backend": ["Firebase", "PostgreSQL", "Quarkus", "Kubernetes", "Java"],
+                "api": ["Google Maps API"],
+                "other": []
+            },
+            "link": "https://devpost.com/software/appname-ybfhks"
+        },
+        {
+            "title": "ProFit",
+            "image": "/experience/ProFit.png",
+            "location": "The Square Small Business Hackathon | Online / International",
+            "date": "June 22, 2020",
+            "tagline": "An online commerce app for fitness professionals.",
+            "desc": [
+                "Worked on user interface for scheduling and tracking, as well as storage code."
+            ],
+            "tech": {
+                "frontend": ["Flutter", "Dart"],
+                "backend": ["Firebase", "Agora.io", "FFmpeg", "TensorFlow Lite"],
+                "api": ["Square API"],
+                "other": []
+            },
+            "link": "https://devpost.com/software/profit-fw5oyn"
+        },
+        {
+            "title": "Bot Dilemma",
+            "image": "/experience/Bot Dilemma.png",
+            "location": "Oxford Digithon | Online / International",
+            "date": "May 31, 2020",
+            "tagline": "A social chat app using the Turing Test.",
+            "desc": [
+                "Worked on user interface, user storage, and chat system."
+            ],
+            "tech": {
+                "frontend": ["Flutter", "Dart"],
+                "backend": ["Firebase", "Python", "PyTorch"],
+                "api": ["ParlAI"],
+                "other": []
+            },
+            "link": "https://devpost.com/software/socialchatbotapp"
+        },
+        {
+            "title": "COVID - 4seen",
+            "image": "/experience/COVID - 4seen.png",
+            "location": "RowdyHacks | Online / International",
+            "date": "March 29, 2020",
+            "tagline": "A food tracker app for quarantine.",
+            "desc": [
+                "Worked on maps and API code."
+            ],
+            "tech": {
+                "frontend": ["Flutter", "Dart"],
+                "backend": ["Firebase"],
+                "api": ["Google Maps API"],
+                "other": []
+            },
+            "link": "https://devpost.com/software/supplyrowdy"
+        },
+        {
+            "title": "Cultivate",
+            "image": "/experience/Cultivate.png",
+            "location": "EarthxHack | Online / International",
+            "date": "April 26, 2020",
+            "tagline": "A local commerce app for farming.",
+            "desc": [
+                "Worked on database and commerce code."
+            ],
+            "tech": {
+                "frontend": ["Flutter", "Dart"],
+                "backend": ["Firebase", "Flask", "Beautiful Soup", "Python"],
+                "api": ["REST API"],
+                "other": []
+            },
+            "link": "https://devpost.com/software/farming_app"
+        },
+        {
+            "title": "Reusify",
+            "image": "/experience/Reusify.png",
+            "location": "TitanHacks | Online / International (High School Students)",
+            "date": "April 12, 2020",
+            "tagline": "A social media app for reusing materials.",
+            "desc": [
+                "Worked on user interface and database code."
+            ],
+            "tech": {
+                "frontend": ["Flutter", "Dart"],
+                "backend": ["Firebase"],
+                "api": [],
+                "other": []
+            },
+            "link": "https://devpost.com/software/ecocycle-mtser2"
+        },
+        {
+            "title": "Footprint",
+            "image": "/experience/Footprint.png",
+            "location": "Wacode | Baylor University, Waco, TX",
+            "date": "February 22, 2020",
+            "tagline": "A carbon footprint tracker using camera.",
+            "desc": [
+                "Worked on API, backend code, and implementation of Google’s ML Kit."
+            ],
+            "tech": {
+                "frontend": ["Flutter", "Dart"],
+                "backend": ["Firebase", "Flask", "Beautiful Soup", "Python"],
+                "api": ["Google ML Kit"],
+                "other": []
+            },
+            "link": "https://devpost.com/software/greenfoot-xlvgcn"
+        },
+        {
+            "title": "Gotta Go",
+            "image": "/experience/Gotta Go.png",
+            "location": "TAMUHack | Texas A&M University, College Station, TX",
+            "date": "January 26, 2020",
+            "tagline": "An estimated time of arrival app for airports.",
+            "desc": [
+                "First time hackathon.",
+                "Worked on user interface."
+            ],
+            "tech": {
+                "frontend": ["Flutter", "Dart"],
+                "backend": [],
+                "api": ["Google Maps API"],
+                "other": []
+            },
+            "link": "https://devpost.com/software/gotta-go-841wy2"
+        }
+    ]
+}
