@@ -12,9 +12,9 @@
         "description": "A convoluted way to add aux input to early 2000s Toyota vehicles by emulating the CD changer."
     },
     "3": {
-        "timestamp": 1767771249,
+        "timestamp": 1773562391,
         "type": "blog",
-        "title": "Microsoft Spatial Sound and Media Foundation",
+        "title": "Windows Spatial Sound and Media Foundation",
         "description": "Attempting to use the Windows API used by Windows Sonic and Dolby Atmos."
     },
     "4": {
