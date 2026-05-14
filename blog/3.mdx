@@ -11,13 +11,13 @@ In this article, I'll go over how to use this API and some observations I made w
 
 ## Using `HRESULT`
 For the entire program, we'll be storing the `HRESULT` returned by the Windows API functions.
-<a href="https://learn.microsoft.com/en-us/windows/win32/seccrypto/common-hresult-values">`HRESULT`</a> is a value type used to indicate success or failure of these functions and the failure type.
+<a href="https://learn.microsoft.com/en-us/windows/win32/seccrypto/common-hresult-values" target="_blank">`HRESULT`</a> is a value type used to indicate success or failure of these functions and the failure type.
 Personally, I used the `HRESULT` variable with breakpoints to debug.
 Although, I would recommend using error handling as well.
 
 ## Using `CoInitializeEx`
-As Media Foundation and retrieving audio device (which uses `CoCreateInstance`) requires the <a href="https://learn.microsoft.com/en-us/windows/win32/com/the-com-library">COM (Component Object Model) library</a>, you'll have to use <a href="https://learn.microsoft.com/en-us/windows/win32/api/combaseapi/nf-combaseapi-coinitializeex">`CoInitializeEx`</a>.
-Do note that this isn't mentioned in the <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects">spatial sound Microsoft article</a>.
+As Media Foundation and retrieving audio device (which uses `CoCreateInstance`) requires the <a href="https://learn.microsoft.com/en-us/windows/win32/com/the-com-library" target="_blank">COM (Component Object Model) library</a>, you'll have to use <a href="https://learn.microsoft.com/en-us/windows/win32/api/combaseapi/nf-combaseapi-coinitializeex" target="_blank">`CoInitializeEx`</a>.
+Do note that this isn't mentioned in the <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects" target="_blank">spatial sound Microsoft article</a>.
 I recommend you call this first in case you add any other calls using the COM library.
 That means we'll use this to initialize the `HRESULT` variable as well.
 <CodeBlock>
@@ -25,23 +25,23 @@ That means we'll use this to initialize the `HRESULT` variable as well.
 HRESULT hr = CoInitializeEx(NULL, COINIT_DISABLE_OLE1DDE);
 ```
 </CodeBlock>
-Using `COINIT_DISABLE_OLE1DDE` is recommended as it <a href="https://learn.microsoft.com/en-us/windows/win32/learnwin32/initializing-the-com-library">avoids overheads associated with the obsolete Object Linking and Embedding 1.0</a>.
+Using `COINIT_DISABLE_OLE1DDE` is recommended as it <a href="https://learn.microsoft.com/en-us/windows/win32/learnwin32/initializing-the-com-library" target="_blank">avoids overheads associated with the obsolete Object Linking and Embedding 1.0</a>.
 You can also specify whether to use `COINIT_MULTITHREADED` or `COINIT_APARTMENTTHREADED` for the function.
-<a href="https://learn.microsoft.com/en-us/windows/win32/medfound/media-foundation-and-com">Microsoft recommends using `COINIT_MULTITHREADED`</a> but <a href="https://stackoverflow.com/questions/45334838/use-coinit-apartmentthreaded-or-coinit-multithreaded-in-media-foundation">I don't think this matters as Media Foundation itself initializes itself as multithreaded apartment anyway</a>.
+<a href="https://learn.microsoft.com/en-us/windows/win32/medfound/media-foundation-and-com" target="_blank">Microsoft recommends using `COINIT_MULTITHREADED`</a> but <a href="https://stackoverflow.com/questions/45334838/use-coinit-apartmentthreaded-or-coinit-multithreaded-in-media-foundation" target="_blank">I don't think this matters as Media Foundation itself initializes itself as multithreaded apartment anyway</a>.
 
 # Generating PCM audio through Media Foundation
 The `ISpatialAudioClient` and its associated objects stream spatial audio by processing a pulse code modulation (specifically WAV) audio.
 In this case, we will use 32-bit (float) mono PCM data with a 48kHz sample rate.
 Do note that the `ISpatialAudioClient` will only accept the same sample rate set in your system settings.
 
-Since I didn't want to be stuck with sine waves like in <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects">Microsoft's example</a>, I had to generate audio data by decoding audio files.
+Since I didn't want to be stuck with sine waves like in <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects" target="_blank">Microsoft's example</a>, I had to generate audio data by decoding audio files.
 I had two choices doing this.
 One is using highly portable libraries like FFmpeg's `libavcodec`.
 Another is using Media Foundation, a multimedia framework platform only supported on post-Vista Windows.
 Since I happened to feel adventurous at that time, I went with Media Foundation.
 
 The Media Foundation source reader provides a way to read audio files and turn it into PCM data.
-My implementation was mostly based on the article written <a href="https://learn.microsoft.com/en-us/windows/win32/medfound/tutorial--decoding-audio">here</a>.
+My implementation was mostly based on the article written <a href="https://learn.microsoft.com/en-us/windows/win32/medfound/tutorial--decoding-audio" target="_blank">here</a>.
 
 ## Full implementation
 The full function should be right below.
@@ -228,8 +228,8 @@ if (channelsAttr != 2) {
 ```
 </CodeBlock>
 
-Before we start reading anything, we'll have to return the PCM format to the caller using `AddRef` on the `pAudioType` we just used to retrieve the `IMFMediaType` (according to the <a href="https://learn.microsoft.com/en-us/windows/win32/medfound/tutorial--decoding-audio">article</a>).
-<a href="https://learn.microsoft.com/en-us/windows/win32/api/unknwn/nf-unknwn-iunknown-addref">I presume this is to prevent dangling pointers by notifying the COM object that there is an active reference</a>.
+Before we start reading anything, we'll have to return the PCM format to the caller using `AddRef` on the `pAudioType` we just used to retrieve the `IMFMediaType` (according to the <a href="https://learn.microsoft.com/en-us/windows/win32/medfound/tutorial--decoding-audio" target="_blank">article</a>).
+<a href="https://learn.microsoft.com/en-us/windows/win32/api/unknwn/nf-unknwn-iunknown-addref" target="_blank">I presume this is to prevent dangling pointers by notifying the COM object that there is an active reference</a>.
 <CodeBlock>
 ```cpp
 // Return the PCM format to the caller.
@@ -260,7 +260,7 @@ As audio streams interleave channel samples, you'll have to account for that whe
 The code below shows how I write stereo audio.
 
 After writing all audio, it would be good practice to unlock the buffer and release the sample container and buffer interface pointers using `SafeRelease`.
-The <a href="https://learn.microsoft.com/en-us/windows/win32/medfound/tutorial--decoding-audio">Microsoft article</a> specifies a check on whether `pAudioData` still references something.
+The <a href="https://learn.microsoft.com/en-us/windows/win32/medfound/tutorial--decoding-audio" target="_blank">Microsoft article</a> specifies a check on whether `pAudioData` still references something.
 I think this was probably in case the file write in their example returns an error and the loop breaks before unlocking the buffer.
 Although I don't think I need this check, I added it just in case.
 <CodeBlock>
@@ -329,7 +329,7 @@ SafeRelease(&pReader);
 </CodeBlock>
 
 ## Extra info
-Before I discovered you could assign the sample rate at read, I had a separate function that resamples the data from the source sample rate to the target sample rate using <a href="https://learn.microsoft.com/en-us/previous-versions/dd443196(v=vs.85)">`CLSID_AudioResamplerMediaObject`</a>.
+Before I discovered you could assign the sample rate at read, I had a separate function that resamples the data from the source sample rate to the target sample rate using <a href="https://learn.microsoft.com/en-us/previous-versions/dd443196(v=vs.85)" target="_blank">`CLSID_AudioResamplerMediaObject`</a>.
 I think for some audio files, the function ran into a `E_NOTIMPL` `HRESULT` value when running the `IMFTransform`'s `ProcessOutput` function.
 I never got to figure out why that was the case, but it doesn't happen with source reader as far as I can see.
 
@@ -337,7 +337,7 @@ I never got to figure out why that was the case, but it doesn't happen with sour
 Now that we have a way to get WAV audio, we can stream the audio using the Spatial Audio API.
 
 ## Full implementation
-My implementation was mostly based on the article written <a href='https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects'>here</a>.
+My implementation was mostly based on the article written <a href='https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects' target="_blank">here</a>.
 Do note that the Spatial Audio API won't work unless you turn on spatial sound (e.g. Windows Sonic for Headphones) in your audio output settings.
 
 The full function should be right below.
@@ -534,7 +534,7 @@ UINT WriteToAudioObjectBuffer(
 
 ## The process
 We'll first have to get the audio device.
-This is done by using the <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/mmdevice-api">MMDevice API</a>.
+This is done by using the <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/mmdevice-api" target="_blank">MMDevice API</a>.
 `GetDefaultAudioEndpoint` will get the default audio endpoint device and will be accessible through `defaultDevice`.
 <CodeBlock>
 ```cpp
@@ -567,7 +567,7 @@ After that, we check whether the `WAVEFORMATEX` format is supported.
 
 We'll also retrieve the maximum dynamic object count and check whether it can have one.
 If spatial sound is off, it'll return 0.
-If spatial sound is on, it'll depend on what is listed in <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/spatial-sound#microsoft-spatial-sound-runtime-resource-implications">Microsoft Spatial Sound Runtime Resource Implications</a>.
+If spatial sound is on, it'll depend on what is listed in <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/spatial-sound#microsoft-spatial-sound-runtime-resource-implications" target="_blank">Microsoft Spatial Sound Runtime Resource Implications</a>.
 In general, the maximum number of audio objects you can add will be the maximum dynamic objects minus the static objects excluding the LFE channel (e.g. 7 objects for 7.1).
 To signal for more buffer data, we'll also need an event object.
 <CodeBlock>
@@ -597,8 +597,8 @@ if (maxDynamicObjectCount == 0) {
 </CodeBlock>
 
 We then pass the `WAVEFORMATEX` format, buffer completion event object, and maximum dynamic audio object count into the `SpatialAudioObjectRenderStreamActivationParams` structure.
-Most other activation params for the audio stream is based on the <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects">article</a>.
-The <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects">article</a> says to set the maximum dynamic object count to the maximum you'll use.
+Most other activation params for the audio stream is based on the <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects" target="_blank">article</a>.
+The <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects" target="_blank">article</a> says to set the maximum dynamic object count to the maximum you'll use.
 Although you can just set `MaxDynamicObjectCount` to the maximum supported number of objects, I assume this is discouraged due to performance reasons.
 
 We'll then pass the `ISpatialAudioObjectRenderStream` interface and the `PROPVARIANT` structure containing the activation params to activate the spatial audio stream.
@@ -651,7 +651,7 @@ Now, we can start streaming the actual audio.
 Before you stream, you'll have to notify the media pipeline to request for audio data by calling `Start` on the `ISpatialAudioObjectRenderStream`.
 
 Within the streaming loop (controlled by the `streaming` signal), you'll have to wait for the signal for more buffer data (`bufferCompletionEvent`) with a reasonable timeout.
-According to the <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects">article</a>, you should "set a reasonable timeout limit, like 100 ms, when waiting for the event because any change to the render type or endpoint will cause that event to never be signaled."
+According to the <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects" target="_blank">article</a>, you should "set a reasonable timeout limit, like 100 ms, when waiting for the event because any change to the render type or endpoint will cause that event to never be signaled."
 
 You then notify the system that you are going to fill the audio objects' buffer using `BeginUpdatingAudioObjects`.
 This will return the number of available dynamic audio objects and the number of audio frames that can be written to the buffer.
@@ -801,7 +801,7 @@ int main(int argc, char* argv[]) {
 </CodeBlock>
 
 ## Explanation of some parts
-The `HeapSetInformation` was specified in the <a href="https://learn.microsoft.com/en-us/windows/win32/medfound/tutorial--decoding-audio">Media Foundation article</a>.
+The `HeapSetInformation` was specified in the <a href="https://learn.microsoft.com/en-us/windows/win32/medfound/tutorial--decoding-audio" target="_blank">Media Foundation article</a>.
 Although the code still works without it, I would still use it in case something goes wrong in the heap.
 <CodeBlock>
 ```cpp
@@ -848,7 +848,7 @@ std::vector<UINT> offsets = { 0, 0 };
 </CodeBlock>
 
 ## `ISpatialAudioClient2`: the less power hungry alternative
-<a href="https://learn.microsoft.com/en-us/windows/win32/api/spatialaudioclient/nn-spatialaudioclient-ispatialaudioclient2">`ISpatialAudioClient2`</a> was introduced on Windows 11 21H2 as a way to wake your app up less (and saving energy) by allocating a much larger buffer (1-2 seconds compared to 10 milliseconds)
+<a href="https://learn.microsoft.com/en-us/windows/win32/api/spatialaudioclient/nn-spatialaudioclient-ispatialaudioclient2" target="_blank">`ISpatialAudioClient2`</a> was introduced on Windows 11 21H2 as a way to wake your app up less (and saving energy) by allocating a much larger buffer (1-2 seconds compared to 10 milliseconds)
 I think this is a drop-in replacement to `ISpatialAudioClient` (as well as inherits and initialized from the object) with some exceptions.
 - The Windows version should support it.
 - You can only use this if the system can offload audio processing to hardware (which can be checked by calling `IsOffloadCapable` on the `ISpatialAudioClient2` object).
@@ -1404,7 +1404,7 @@ int main(int argc, char* argv[]) {
 </CodeBlock>
 
 The main focus of this is that the sound objects now have orientations due to the different sound propagation methods.
-This means using DirectX to calculate a rotation matrix from the listener's direction to the sound object's direction (as specified by the <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects">article</a>).
+This means using DirectX to calculate a rotation matrix from the listener's direction to the sound object's direction (as specified by the <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects" target="_blank">article</a>).
 
 But, the main-er focus is the directivity.
 Which goes into the next section.
@@ -1436,9 +1436,9 @@ streamParams.Directivity = &directivityUnion;
 
 ## Discovering how fiddly this is
 Once you try to change around stuff, you'll discover that there is no volume control.
-If you try to change the volume using `SetGain` (like what the <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects">article</a> said) for the audio source, it doesn't change.
+If you try to change the volume using `SetGain` (like what the <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects" target="_blank">article</a> said) for the audio source, it doesn't change.
 
-So I then looked into the <a href="https://learn.microsoft.com/en-us/windows/win32/api/spatialaudiohrtf/nf-spatialaudiohrtf-ispatialaudioobjectforhrtf-setgain">documentation</a> and found that it only works with `SpatialAudioHrtfDistanceDecay_CustomDecay` decay model type instead of the `SpatialAudioHrtfDistanceDecay_NaturalDecay` the <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects">article</a> specified.
+So I then looked into the <a href="https://learn.microsoft.com/en-us/windows/win32/api/spatialaudiohrtf/nf-spatialaudiohrtf-ispatialaudioobjectforhrtf-setgain" target="_blank">documentation</a> and found that it only works with `SpatialAudioHrtfDistanceDecay_CustomDecay` decay model type instead of the `SpatialAudioHrtfDistanceDecay_NaturalDecay` the <a href="https://learn.microsoft.com/en-us/windows/win32/coreaudio/render-spatial-sound-using-spatial-audio-objects" target="_blank">article</a> specified.
 Even then, I wasn't really able to change the gain, let alone find a way to define the custom gain curve for `SpatialAudioHrtfDistanceDecay_CustomDecay`.
 
 In addition, I think (but can't confirm) the decay model is based on some kind of multiple-based solution as sound objects pointing directly towards you does not observe sound decay until it turns completely silent when it reaches the cutoff distance (unlike any other directions which observes sound decay).

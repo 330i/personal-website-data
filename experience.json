@@ -4,7 +4,7 @@
             "title": "Global Data Hub App",
             "image": "experience/Global Data Hub App.png",
             "location": "Hines",
-            "date": "June 2022 -",
+            "date": "June 2022 - August 2024",
             "tagline": "Investment pipeline and data management platform for Hines.",
             "desc": [
                 "Worked on some feature developments"
@@ -19,6 +19,23 @@
         }
     ],
     "Project Experience": [
+        {
+            "title": "Stackbox",
+            "image": "experience/Stackbox.gif",
+            "location": "CSCE 482 Capstone Project (Texas A&M University)",
+            "date": "Spring 2026",
+            "tagline": "An automated commercial real estate stacking plan visualizer.",
+            "desc": [
+                "Worked on slicing algorithm, full-stack integration, and AWS management."
+            ],
+            "tech": {
+                "frontend": ["Next.js", "Tailwind CSS", "MapBox GL JS"],
+                "backend": ["FastAPI", "PostgreSQL", "SQLAlchemy", "Trimesh"],
+                "api": ["AWS RDS", "Amazon Cognito"],
+                "other": []
+            },
+            "link": "https://github.com/michtra/stackbox"
+        },
         {
             "title": "Project Pandugg",
             "image": "experience/Project Pandugg.png",
@@ -58,14 +75,15 @@
             "date": "Spring 2024",
             "tagline": "An imitation of Wordle made with JavaFX.",
             "desc": [
-                "Worked on everything as it was a personal assignment."
+                "Personal assignment."
             ],
             "tech": {
                 "frontend": ["JavaFX"],
                 "backend": ["Java"],
                 "api": [],
                 "other": []
-            }
+            },
+            "link": "https://github.com/330i/project_wobblestone"
         },
         {
             "title": "Project ParKit",
@@ -74,7 +92,7 @@
             "date": "Spring 2021",
             "tagline": "QR Code based parking space sharing app.",
             "desc": [
-                "Worked on everything as it was a personal assignment."
+                "Personal assignment."
             ],
             "tech": {
                 "frontend": ["Flutter", "Dart"],

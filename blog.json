@@ -22,5 +22,11 @@
         "type": "ideation",
         "title": "(In Progress) Approximating Car Audio",
         "description": "Jotting down notes on how I could approximate how car audio sounds."
+    },
+    "5": {
+        "timestamp": 1777441492,
+        "type": "blog",
+        "title": "The Weirdly Diverse Head Units of the Corolla",
+        "description": "The 10+ different head units for the 2000s Toyota Corolla (and its variants)."
     }
 }
